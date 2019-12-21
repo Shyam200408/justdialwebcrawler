@@ -1,0 +1,197 @@
+using HtmlAgilityPack;
+using ScrapySharp.Network;
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using ScrapySharp.Extensions;
+
+using System.Text.RegularExpressions;
+using log4net;
+using Microsoft.Win32;
+using System.Windows.Forms;
+using System.Diagnostics;
+
+namespace WebCrawler.Justdial.Services
+{
+    public class Service 
+        : BaseBrowser
+    {
+        private static readonly PhoneNumberRetriever _numberMapper;
+        private static readonly Pagination _pagination;
+        private static readonly WebBrowserControl _webBrowserControl;
+
+        ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        
+        static Service()
+        {
+            _numberMapper = new PhoneNumberRetriever();
+            _pagination = new Pagination();
+            _webBrowserControl = new WebBrowserControl();
+            WebBrowserHelper.FixBrowserVersion();
+        }
+
+        public override WebPage NavigateToPage(string uri)
+        {
+            try
+            {
+                return base.NavigateToPage(uri);
+            }
+            catch(Exception ex)
+            {
+                return null;
+            }
+        }
+
+        public JustDial Run(HtmlNode node, string location, string category, bool isPaused)
+        {
+            JustDial justDial = CrawlData(node, location, category, isPaused);
+            return justDial;
+        }
+
+        public ICollection<Paging> Pagination(WebPage webPage, string siteUrl, bool additionalPaging)
+        {
+            if (!additionalPaging)
+                return _pagination.GetPaging(webPage, siteUrl);
+
+            return new List<Paging>();
+        }
+
+        private JustDial CrawlData(HtmlNode div, string location, string category, bool isPaused)
+        {
+            Log.Info("Entered into CrawlData Method");
+
+            JustDial jd = null;
+            if (isPaused)
+                return jd;
+
+            jd = new JustDial();
+            List<string> contactInfo = new List<string>();
+
+            HtmlNode span = div.CssSelect(".jcn").First();
+            string storeWebsiteDetailUrl = GetAnchorTagURL(div).FirstOrDefault().Item1;
+            jd.Name = span.InnerText.ReplaceAll();
+
+            if (div != null)
+            {
+                Log.Info($"Retrieving Details for Listing: {jd.Name}");
+                jd.StoreWebsiteDetailURL = storeWebsiteDetailUrl;
+                jd.Address = GetAddress(div);
+                jd.Pin = GetPinCode(jd.Address);
+                jd.Category = category;
+                jd.Location = location;
+
+                _webBrowserControl.GetHtmlUsingBrowserControl(jd, isPaused, false);
+                _webBrowserControl.GetWebsiteUrl(jd, isPaused);
+            }
+
+            _numberMapper.MapContacts(jd, isPaused, false);
+            return jd;
+        }
+
+        private string GetAddress(HtmlNode div)
+        {
+            var add = div.CssSelect(".cont_fl_addr").First();
+            return add.InnerText;
+        }
+        
+        private string GetPinCode(string address)
+        {
+            string pinCode = address.Substring(address.LastIndexOf('-') + 1);
+            Regex re = new Regex(@"\d+");
+            Match m = re.Match(pinCode);
+            return m.Value;
+        }
+        private void GeStoretDetailWebSiteURL(WebPage pageResult)
+        {
+            var storeNames = pageResult.Html.CssSelect(".store-name").ToList(); ;
+
+            foreach (var row in storeNames.CssSelect(".jcn"))
+            {
+                GetAnchorTagURL(row);               
+            }
+        }
+
+        private IEnumerable<Tuple<string, string>> GetAnchorTagURL(HtmlNode htmlNode)
+        {
+            Regex regex = new Regex(@"<a.*?href=(""|')(?<href>.*?)(""|').*?>(?<value>.*?)</a>");
+
+            foreach (Match match in regex.Matches(htmlNode.OuterHtml))
+                yield return new Tuple<string, string>(
+                    match.Groups["href"].Value, match.Groups["value"].Value);
+        }
+
+        public void SetIE8KeyforWebBrowserControl()
+        {
+            /*
+             * 11001 (0x2AF9) - Internet Explorer 11. Webpages are displayed in IE11 edge mode, regardless of the !DOCTYPE directive.
+
+            11000 (0x2AF8) - Internet Explorer 11. Webpages containing standards-based !DOCTYPE directives are displayed in IE11 edge mode. Default value for IE11.
+
+            10001 (0x2711)- Internet Explorer 10. Webpages are displayed in IE10 Standards mode, regardless of the !DOCTYPE directive.
+
+            10000 (0x2710)- Internet Explorer 10. Webpages containing standards-based !DOCTYPE directives are displayed in IE10 Standards mode. Default value for Internet Explorer 10.
+
+            9999 (0x270F) - Internet Explorer 9. Webpages are displayed in IE9 Standards mode, regardless of the !DOCTYPE directive.
+
+            9000 (0x2328) - Internet Explorer 9. Webpages containing standards-based !DOCTYPE directives are displayed in IE9 mode.
+
+            8888 (0x22B8) - Webpages are displayed in IE8 Standards mode, regardless of the !DOCTYPE directive.
+
+            8000 (0x1F40) - Webpages containing standards-based !DOCTYPE directives are displayed in IE8 mode.
+
+            7000 (0x1B58) - Webpages containing standards-based !DOCTYPE directives are displayed in IE7 Standards mode.
+            */
+            string appName = Process.GetCurrentProcess().ProcessName + ".exe";
+            RegistryKey Regkey = null;
+            try
+            {
+                // For 64 bit machine
+                if (Environment.Is64BitOperatingSystem)
+                    Regkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\\Wow6432Node\\Microsoft\\Internet Explorer\\MAIN\\FeatureControl\\FEATURE_BROWSER_EMULATION", true);
+                else  //For 32 bit machine
+                    Regkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\\Microsoft\\Internet Explorer\\Main\\FeatureControl\\FEATURE_BROWSER_EMULATION", true);
+
+                // If the path is not correct or
+                // if the user haven't priviledges to access the registry
+                if (Regkey == null)
+                {
+                    MessageBox.Show("Application Settings Failed - Address Not found");
+                    return;
+                }
+
+                string FindAppkey = Convert.ToString(Regkey.GetValue(appName));
+
+                // Check if key is already present
+                if (FindAppkey == "8000")
+                {
+                    //MessageBox.Show("Required Application Settings Present");
+                    Regkey.Close();
+                    return;
+                }
+
+                // If a key is not present add the key, Key value 8000 (decimal)
+                if (string.IsNullOrEmpty(FindAppkey))
+                    Regkey.SetValue(appName, unchecked((int)0x1F40), RegistryValueKind.DWord);
+
+                // Check for the key after adding
+                FindAppkey = Convert.ToString(Regkey.GetValue(appName));
+
+                if (FindAppkey == "8000")
+                    MessageBox.Show("Application Settings Applied Successfully");
+                else
+                    MessageBox.Show("Application Settings Failed, Ref: " + FindAppkey);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Application Settings Failed");
+                MessageBox.Show(ex.Message);
+            }
+            finally
+            {
+                // Close the Registry
+                if (Regkey != null)
+                    Regkey.Close();
+            }
+        }
+    }
+}
