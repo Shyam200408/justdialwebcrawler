@@ -1,0 +1,183 @@
+using HtmlAgilityPack;
+using ScrapySharp.Extensions;
+
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace WebCrawler.Justdial.Services
+{
+    public class PhoneNumberRetriever
+    {
+        private readonly HtmlReader _htmlReader;
+        private readonly PhoneNumberMapper _numberMapper;
+        public PhoneNumberRetriever()
+        {
+            _htmlReader = new HtmlReader();
+            _numberMapper = new PhoneNumberMapper();
+        }
+        protected internal ICollection<JustDial> MapContacts(ICollection<JustDial> justDials, bool isPaused, bool readFromSavedHtml)
+        {
+            string htmlAsString = string.Empty;
+
+            foreach (JustDial jd in justDials)
+            {
+                HtmlDocument htmlDocument = readFromSavedHtml ?
+                     _htmlReader.LoadHtml(ref htmlAsString, jd.Name)
+                     : _htmlReader.LoadHtml(jd.HtmlAsString, ref htmlAsString);
+
+                IEnumerable<HtmlNode> contacts = htmlDocument.DocumentNode.CssSelect(".comp-contact");
+
+                ICollection<CssValues> cssDetails = _numberMapper.Map(jd.StoreWebsiteDetailURL, null, htmlAsString, 1) as List<CssValues>;
+
+                foreach (HtmlNode spans in contacts)
+                {
+                    IEnumerable<HtmlNode> ancouter = spans.CssSelect(".telnowpr");
+                    foreach (HtmlNode ancr in ancouter)
+                    {
+                        int contactNumberOrder = 0;
+                        foreach (string html in ancr.InnerHtml.Split(','))
+                        {
+                            contactNumberOrder++;
+
+                            HtmlDocument htmlDoc = new HtmlDocument();
+                            htmlDoc.LoadHtml(html);
+                            StringBuilder sbContact = new StringBuilder();
+
+                            IEnumerable<HtmlNode> anchorTags = // Omitted
+                            foreach (HtmlNode anchor in anchorTags)
+                            {
+                                string cssName = // Omitted
+
+                                string contactNumber = cssDetails.FirstOrDefault(css => css.CssName == cssName).CssValue;
+                                sbContact.Append(contactNumber);
+                            }
+
+                            MapContacts(jd, contactNumberOrder, sbContact);
+                        }
+                    }
+                }
+
+                // Retrieve Search Keywords / Tags here.
+                GetSearchKeyWordTags(htmlDocument, jd);
+                jd.HtmlAsString = string.Empty;
+            }
+
+            return justDials;
+        }
+
+        protected internal JustDial MapContacts(JustDial jd, bool isPaused, bool readFromSavedHtml)
+        {
+            Logger.Info($"Entered Into MapContacts Method for Listing: {jd.Name}");
+
+            string htmlAsString = string.Empty;
+
+            Logger.Info("Loading & Reading HTML");
+
+            HtmlDocument htmlDocument = readFromSavedHtml ?
+                 _htmlReader.LoadHtml(ref htmlAsString, jd.Name)
+                 : _htmlReader.LoadHtml(jd.HtmlAsString, ref htmlAsString);
+
+            IEnumerable<HtmlNode> contacts = htmlDocument.DocumentNode.CssSelect(".comp-contact");
+
+            Logger.Info("Entering into _numberMapper.Map Method");
+            ICollection<CssValues> cssDetails = _numberMapper.Map(jd.StoreWebsiteDetailURL, null, htmlAsString, 1) as List<CssValues>;
+            Logger.Info("Exited from _numberMapper.Map Successfully");
+
+            foreach (HtmlNode spans in contacts)
+            {
+                IEnumerable<HtmlNode> ancouter = spans.CssSelect(".telnowpr");
+                foreach (HtmlNode ancr in ancouter)
+                {
+                    int contactNumberOrder = 0;
+                    foreach (string html in ancr.InnerHtml.Split(','))
+                    {
+                        contactNumberOrder++;
+
+                        HtmlDocument htmlDoc = new HtmlDocument();
+                        htmlDoc.LoadHtml(html);
+                        StringBuilder sbContact = new StringBuilder();
+
+                       
+                        Logger.Info("Exited from MapContacts Method Successfully");
+                    }
+                }
+
+                // Retrieve Search Keywords / Tags here.
+                GetSearchKeyWordTags(htmlDocument, jd);
+
+                Logger.Info($"Entering into  PrimaryContact Methods for Listing: {jd.Name}");
+                PrimaryContact(htmlDocument, jd);
+                Logger.Info($"Exited Successfully from PrimaryContact Methods for Listing: {jd.Name}");
+
+                jd.HtmlAsString = string.Empty;
+            }
+
+            return jd;
+        }
+
+        private JustDial GetSearchKeyWordTags(HtmlDocument htmlDocument, JustDial justDial)
+        {
+            string htmlAsString = string.Empty;
+
+            var searchKeywordsTagNodes = htmlDocument.DocumentNode.CssSelect(".alstdul").ToList();
+            List<string> keyWords = new List<string>();
+            foreach (HtmlNode tagNodes in searchKeywordsTagNodes)
+            {
+                var links = tagNodes.CssSelect(".lng_als_lst").ToList();
+                foreach (HtmlNode link in links)
+                {
+                    keyWords.Add(link.InnerText);
+                }
+            }
+
+            justDial.Tags = string.Join(",", keyWords);
+            return justDial;
+        }
+
+        private JustDial MapContacts(JustDial jd, int contactNumberOrder, StringBuilder sbContact)
+        {
+            Logger.Info("Entered MapContacts Method & Adding Mapped Contacts as List");
+
+            switch (contactNumberOrder)
+            {
+                case 1:
+                    jd.Contact1 = sbContact.ToString();
+                    break;
+                case 2:
+                    jd.Contact2 = sbContact.ToString();
+                    break;
+                case 3:
+                    jd.Contact3 = sbContact.ToString();
+                    break;
+                case 4:
+                    jd.Contact4 = sbContact.ToString();
+                    break;
+                case 5:
+                    jd.Contact5 = sbContact.ToString();
+                    break;
+                case 6:
+                    jd.Contact6 = sbContact.ToString();
+                    break;
+            }
+
+            Logger.Info("Mapped Contacts Added Successfully into List");
+
+            return jd;
+        }
+
+        /// <summary>
+        /// Whats App Number
+        /// </summary>
+        /// <param name="htmlDocument"></param>
+        /// <param name="justDial"></param>
+        /// <returns></returns>
+        private JustDial PrimaryContact(HtmlDocument htmlDocument, JustDial justDial)
+        {
+            if (!string.IsNullOrWhiteSpace(justDial.PrimaryContact))
+                Logger.Info($"PrimaryContact Found & Added for Listing: {justDial.Name}");
+
+            return justDial;
+        } 
+    }
+}
